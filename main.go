@@ -1,11 +1,11 @@
 package main
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
-	"unicode/utf8"
+	"strings"
+	"unicode"
 )
 
 func main() {
@@ -16,15 +16,11 @@ func main() {
 
 	pattern := os.Args[2]
 
-	fmt.Printf("Pattern is %q\n", pattern)
-
 	line, err := io.ReadAll(os.Stdin) // Assuming there is only one line
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Usage: mygrep -E <pattern>\n")
 		os.Exit(2)
 	}
-
-	fmt.Printf("Line is %q\n", line)
 
 	ok, err := matchLine(line, pattern)
 	if err != nil {
@@ -40,27 +36,60 @@ func main() {
 }
 
 func matchLine(line []byte, pattern string) (bool, error) {
-	patternLength := utf8.RuneCountInString(pattern)
-	fmt.Println("RuneCountInString vs Len", patternLength, len(pattern))
+	patternLength := len(pattern)
 	if patternLength == 0 {
 		return false, fmt.Errorf("unsupported pattern: %q", pattern)
 	}
 
-	var ok bool
+	if pattern[0] == '^' {
+		return matchPattern(line, pattern[1:], 0), nil
+	}
 
-	if pattern == "\\d" {
-		ok = bytes.ContainsAny(line, "1234567890")
-	} else if pattern == "\\w" {
-		ok = bytes.ContainsAny(line, "abcdefghijklmnopqrstvuwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
-	} else if patternLength == 1 {
-		ok = bytes.ContainsAny(line, pattern)
-	} else if pattern[0] == '[' && pattern[len(pattern)-1] == ']' {
-		if pattern[1] == '^' {
-			ok = !bytes.ContainsAny(line, pattern[2:len(pattern)-1])
-		} else {
-			ok = bytes.ContainsAny(line, pattern[1:len(pattern)-1])
+	for i := 0; i < len(line); i++ {
+		fmt.Println("RUNNING MATCH LINE LOOP", string(line[i]))
+		if matchPattern(line, pattern, i) {
+			return true, nil
 		}
 	}
 
-	return ok, nil
+	return false, nil
+}
+
+func matchPattern(line []byte, pattern string, start int) bool {
+	for i := 0; i < len(pattern); i++ {
+		fmt.Println("---PATTERN LOOP")
+		fmt.Printf("START IS %d - LEN(LINE) is %d\n", start, len(line))
+		if start >= len(line)-1 {
+			return pattern[i] == '$'
+		}
+		if pattern[i] == '\\' && i+1 < len(pattern) {
+			if pattern[i+1] == 'd' && !unicode.IsDigit(rune(line[start])) {
+				return false
+			} else if pattern[i+1] == 'w' && !unicode.IsLetter(rune(start)) {
+				return false
+			} else {
+				i++
+			}
+		} else if pattern[i] == '[' && pattern[i+1] == '^' {
+			endPos := strings.Index(pattern[i:], "]")
+			if strings.Contains(pattern, pattern[i+1:endPos]) {
+				return false
+			}
+			i = endPos
+		} else if pattern[i] == '[' {
+			endPos := strings.Index(pattern[i:], "]")
+			if !strings.Contains(pattern, pattern[i+1:endPos]) {
+				return false
+			}
+			i = endPos
+		} else {
+			if start < len(line) && line[start] != pattern[i] {
+				return false
+			}
+		}
+
+		start++
+	}
+
+	return true
 }
